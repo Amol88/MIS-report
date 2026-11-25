@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 
 # Page setup
@@ -55,28 +55,42 @@ else:
     st.sidebar.info("Abhi Sample Data dikh raha hai. Apna data dekhne ke liye file upload karein.")
     raw_df = load_sample_data()
 
+# Check if dataframe has enough columns
+cols = raw_df.columns.tolist()
+if len(cols) < 3:
+    st.error("File mein kam se kam 3 columns (Date, Revenue, Expense) hone chahiye.")
+    st.stop()
+
 # Sidebar - Dynamic Column Mapping
 st.sidebar.header("2. Column Mapping")
-cols = raw_df.columns.tolist()
 
-def get_default_index(keywords):
+def get_default_index(keywords, fallback=0):
     for i, col in enumerate(cols):
-        if any(k in col.lower() for k in keywords):
+        if any(k in str(col).lower() for k in keywords):
             return i
-    return 0
+    return min(fallback, len(cols) - 1)
 
-date_col = st.sidebar.selectbox("Date Column", cols, index=get_default_index(["date", "dt", "month", "day"]))
-cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "prod", "item", "dept"]))
-city_col = st.sidebar.selectbox("City / Branch / Region Column", cols, index=get_default_index(["city", "branch", "region", "state", "loc"]))
-rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "amount", "total"]))
-exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend"]))
+date_col = st.sidebar.selectbox("Date Column", cols, index=get_default_index(["date", "dt", "month", "day"], 0))
+cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "prod", "item", "dept"], 1))
+city_col = st.sidebar.selectbox("City / Branch / Region Column", cols, index=get_default_index(["city", "branch", "region", "state", "loc"], 2))
+rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "amount", "total"], 3))
+exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend"], 4))
+
+# Duplicate column check (crash rokne ke liye)
+if len({date_col, rev_col, exp_col}) < 3:
+    st.warning("⚠️ Sidebar mein **Date**, **Revenue**, aur **Expense** ke liye alag-alag columns select karein.")
+    st.stop()
 
 # Data cleaning & preparation
 df = raw_df.copy()
-df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+df[date_col] = pd.to_datetime(df[date_col], errors="coerce", dayfirst=True)
 df[rev_col] = pd.to_numeric(df[rev_col], errors="coerce").fillna(0)
 df[exp_col] = pd.to_numeric(df[exp_col], errors="coerce").fillna(0)
 df = df.dropna(subset=[date_col])
+
+if df.empty or not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+    st.error(f"❌ Selected column **'{date_col}'** mein valid dates nahi mili. Sidebar se sahi Date column select karein.")
+    st.stop()
 
 df["Profit"] = df[rev_col] - df[exp_col]
 df["Month"] = df[date_col].dt.to_period("M").astype(str)
@@ -88,17 +102,11 @@ max_date = df[date_col].max().date()
 
 date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-selected_cats = st.sidebar.multiselect(
-    f"Select {cat_col}",
-    options=sorted(df[cat_col].astype(str).unique()),
-    default=sorted(df[cat_col].astype(str).unique())
-)
+cat_options = sorted(df[cat_col].astype(str).unique())
+selected_cats = st.sidebar.multiselect(f"Select {cat_col}", options=cat_options, default=cat_options)
 
-selected_cities = st.sidebar.multiselect(
-    f"Select {city_col}",
-    options=sorted(df[city_col].astype(str).unique()),
-    default=sorted(df[city_col].astype(str).unique())
-)
+city_options = sorted(df[city_col].astype(str).unique())
+selected_cities = st.sidebar.multiselect(f"Select {city_col}", options=city_options, default=city_options)
 
 # Apply filters
 if len(date_range) == 2:
