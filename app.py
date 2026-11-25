@@ -33,6 +33,37 @@ def load_sample_data():
         })
     return pd.DataFrame(data)
 
+# Auto-detect header row helper
+def detect_header_row(file_obj, is_csv=False):
+    file_obj.seek(0)
+    try:
+        if is_csv:
+            preview = pd.read_csv(file_obj, header=None, nrows=25)
+        else:
+            preview = pd.read_excel(file_obj, header=None, nrows=25)
+    except Exception:
+        return 1
+
+    keywords = [
+        "date", "dt", "particular", "party", "customer", "voucher", "invoice",
+        "bill", "amount", "total", "gross", "net", "sale", "revenue", "income",
+        "expense", "cost", "purchase", "debit", "credit", "qty", "quantity",
+        "rate", "gst", "tax", "city", "state", "region", "branch", "category",
+        "product", "item"
+    ]
+
+    best_row = 0
+    max_score = 0
+
+    for idx, row in preview.iterrows():
+        row_values = [str(val).strip().lower() for val in row.dropna()]
+        score = sum(1 for val in row_values if any(k in val for k in keywords))
+        if score > max_score:
+            max_score = score
+            best_row = idx
+
+    return best_row + 1 if max_score >= 2 else 1
+
 # Indian Rupee formatting helper
 def format_inr(num):
     return f"₹{num:,.0f}"
@@ -42,22 +73,29 @@ st.sidebar.header("1. Data Upload")
 uploaded_file = st.sidebar.file_uploader("Excel (.xlsx) ya CSV file upload karein", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
+    is_csv = uploaded_file.name.lower().endswith(".csv")
+    detected_row = detect_header_row(uploaded_file, is_csv=is_csv)
+    
     header_row = st.sidebar.number_input(
-        "Header Row Number (Jis row mein Date, Amount likha hai)",
+        "Header Row Number (Auto-detected)",
         min_value=1,
-        max_value=20,
-        value=1,
-        step=1
+        max_value=25,
+        value=int(detected_row),
+        step=1,
+        key=f"header_{uploaded_file.name}_{uploaded_file.size}"
     )
+    
     try:
-        if uploaded_file.name.endswith(".csv"):
+        uploaded_file.seek(0)
+        if is_csv:
             raw_df = pd.read_csv(uploaded_file, header=header_row - 1)
         else:
             raw_df = pd.read_excel(uploaded_file, header=header_row - 1)
         
-        # Extra spaces hatane ke liye
+        # Extra spaces aur blank columns hatane ke liye
         raw_df.columns = raw_df.columns.astype(str).str.strip()
-        st.sidebar.success("File successfully load ho gayi!")
+        raw_df = raw_df.dropna(how="all", axis=1).dropna(how="all", axis=0)
+        st.sidebar.success(f"File load ho gayi! (Header Row: {header_row})")
     except Exception as e:
         st.error(f"File read karne mein error aaya: {e}")
         st.stop()
@@ -81,10 +119,10 @@ def get_default_index(keywords, fallback=0):
     return min(fallback, len(cols) - 1)
 
 date_col = st.sidebar.selectbox("Date Column", cols, index=get_default_index(["date", "dt", "month", "day"], 0))
-cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "particular", "prod", "item", "dept"], 1))
-city_col = st.sidebar.selectbox("City / Branch / Region Column", cols, index=get_default_index(["city", "branch", "region", "state", "loc"], 2))
-rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "amount", "total", "gross", "credit"], 3))
-exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend", "debit"], 4))
+cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "particular", "customer", "prod", "item", "dept"], 1))
+city_col = st.sidebar.selectbox("City / Branch / Region Column", cols, index=get_default_index(["city", "branch", "region", "state", "loc", "voucher"], 2))
+rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "gross", "total", "amount", "credit"], 3))
+exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend", "debit", "tax", "gst"], 4))
 
 # Duplicate column check (crash rokne ke liye)
 if len({date_col, rev_col, exp_col}) < 3:
