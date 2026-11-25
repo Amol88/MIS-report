@@ -64,6 +64,20 @@ def detect_header_row(file_obj, is_csv=False):
 
     return best_row + 1 if max_score >= 2 else 1
 
+# Duplicate column names ko unique banane ka helper
+def make_unique_columns(columns):
+    seen = {}
+    unique_cols = []
+    for col in columns:
+        col_str = str(col).strip()
+        if col_str in seen:
+            seen[col_str] += 1
+            unique_cols.append(f"{col_str}_{seen[col_str]}")
+        else:
+            seen[col_str] = 0
+            unique_cols.append(col_str)
+    return unique_cols
+
 # Indian Rupee formatting helper
 def format_inr(num):
     return f"₹{num:,.0f}"
@@ -92,9 +106,8 @@ if uploaded_file is not None:
         else:
             raw_df = pd.read_excel(uploaded_file, header=header_row - 1)
         
-        # Extra spaces aur blank columns hatane ke liye
-        raw_df.columns = raw_df.columns.astype(str).str.strip()
         raw_df = raw_df.dropna(how="all", axis=1).dropna(how="all", axis=0)
+        raw_df.columns = make_unique_columns(raw_df.columns)
         st.sidebar.success(f"File load ho gayi! (Header Row: {header_row})")
     except Exception as e:
         st.error(f"File read karne mein error aaya: {e}")
@@ -140,6 +153,10 @@ if df.empty or not pd.api.types.is_datetime64_any_dtype(df[date_col]):
     st.error(f"❌ Selected column **'{date_col}'** mein valid dates nahi mili. Sidebar mein **Header Row Number** ya **Date Column** check karein.")
     st.stop()
 
+# Blank text values ko safe string mein convert karna
+df[cat_col] = df[cat_col].fillna("N/A").astype(str).str.strip()
+df[city_col] = df[city_col].fillna("N/A").astype(str).str.strip()
+
 df["Profit"] = df[rev_col] - df[exp_col]
 df["Month"] = df[date_col].dt.to_period("M").astype(str)
 
@@ -150,10 +167,10 @@ max_date = df[date_col].max().date()
 
 date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
 
-cat_options = sorted(df[cat_col].astype(str).unique())
+cat_options = sorted([str(x) for x in df[cat_col].unique().tolist()])
 selected_cats = st.sidebar.multiselect(f"Select {cat_col}", options=cat_options, default=cat_options)
 
-city_options = sorted(df[city_col].astype(str).unique())
+city_options = sorted([str(x) for x in df[city_col].unique().tolist()])
 selected_cities = st.sidebar.multiselect(f"Select {city_col}", options=city_options, default=city_options)
 
 # Apply filters
@@ -162,13 +179,13 @@ if len(date_range) == 2:
     filtered_df = df[
         (df[date_col].dt.date >= start_dt) &
         (df[date_col].dt.date <= end_dt) &
-        (df[cat_col].astype(str).isin(selected_cats)) &
-        (df[city_col].astype(str).isin(selected_cities))
+        (df[cat_col].isin(selected_cats)) &
+        (df[city_col].isin(selected_cities))
     ]
 else:
     filtered_df = df[
-        (df[cat_col].astype(str).isin(selected_cats)) &
-        (df[city_col].astype(str).isin(selected_cities))
+        (df[cat_col].isin(selected_cats)) &
+        (df[city_col].isin(selected_cities))
     ]
 
 if filtered_df.empty:
@@ -204,7 +221,7 @@ with col1:
 
 with col2:
     st.subheader(f"{cat_col}-wise Revenue vs Profit")
-    cat_df = filtered_df.groupby(cat_col, as_index=False)[[rev_col, "Profit"]].sum().sort_values(by=rev_col, ascending=False)
+    cat_df = filtered_df.groupby(cat_col, as_index=False)[[rev_col, "Profit"]].sum().sort_values(by=rev_col, ascending=False).head(15)
     fig_cat = px.bar(cat_df, x=cat_col, y=[rev_col, "Profit"], barmode="group", color_discrete_sequence=["#3498DB", "#2ECC71"])
     fig_cat.update_layout(yaxis_title="Amount (₹)", legend_title="Metric")
     st.plotly_chart(fig_cat, use_container_width=True)
@@ -214,7 +231,7 @@ col3, col4 = st.columns(2)
 
 with col3:
     st.subheader(f"{city_col}-wise Revenue Share")
-    city_df = filtered_df.groupby(city_col, as_index=False)[rev_col].sum()
+    city_df = filtered_df.groupby(city_col, as_index=False)[rev_col].sum().sort_values(by=rev_col, ascending=False).head(10)
     fig_pie = px.pie(city_df, names=city_col, values=rev_col, hole=0.4)
     st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -222,6 +239,7 @@ with col4:
     st.subheader(f"Summary Table ({cat_col}-wise)")
     summary_table = filtered_df.groupby(cat_col, as_index=False)[[rev_col, exp_col, "Profit"]].sum()
     summary_table["Margin (%)"] = (summary_table["Profit"] / summary_table[rev_col].replace(0, np.nan) * 100).fillna(0).round(2)
+    summary_table = summary_table.sort_values(by=rev_col, ascending=False)
     st.dataframe(summary_table, use_container_width=True, hide_index=True)
 
 st.markdown("---")
