@@ -42,11 +42,21 @@ st.sidebar.header("1. Data Upload")
 uploaded_file = st.sidebar.file_uploader("Excel (.xlsx) ya CSV file upload karein", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
+    header_row = st.sidebar.number_input(
+        "Header Row Number (Jis row mein Date, Amount likha hai)",
+        min_value=1,
+        max_value=20,
+        value=1,
+        step=1
+    )
     try:
         if uploaded_file.name.endswith(".csv"):
-            raw_df = pd.read_csv(uploaded_file)
+            raw_df = pd.read_csv(uploaded_file, header=header_row - 1)
         else:
-            raw_df = pd.read_excel(uploaded_file)
+            raw_df = pd.read_excel(uploaded_file, header=header_row - 1)
+        
+        # Extra spaces hatane ke liye
+        raw_df.columns = raw_df.columns.astype(str).str.strip()
         st.sidebar.success("File successfully load ho gayi!")
     except Exception as e:
         st.error(f"File read karne mein error aaya: {e}")
@@ -58,7 +68,7 @@ else:
 # Check if dataframe has enough columns
 cols = raw_df.columns.tolist()
 if len(cols) < 3:
-    st.error("File mein kam se kam 3 columns (Date, Revenue, Expense) hone chahiye.")
+    st.error("File mein kam se kam 3 columns (Date, Revenue, Expense) hone chahiye. Header Row Number check karein.")
     st.stop()
 
 # Sidebar - Dynamic Column Mapping
@@ -71,10 +81,10 @@ def get_default_index(keywords, fallback=0):
     return min(fallback, len(cols) - 1)
 
 date_col = st.sidebar.selectbox("Date Column", cols, index=get_default_index(["date", "dt", "month", "day"], 0))
-cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "prod", "item", "dept"], 1))
+cat_col = st.sidebar.selectbox("Category / Party / Product Column", cols, index=get_default_index(["cat", "party", "particular", "prod", "item", "dept"], 1))
 city_col = st.sidebar.selectbox("City / Branch / Region Column", cols, index=get_default_index(["city", "branch", "region", "state", "loc"], 2))
-rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "amount", "total"], 3))
-exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend"], 4))
+rev_col = st.sidebar.selectbox("Revenue / Sales Column", cols, index=get_default_index(["rev", "sale", "income", "amount", "total", "gross", "credit"], 3))
+exp_col = st.sidebar.selectbox("Expense / Cost Column", cols, index=get_default_index(["exp", "cost", "purch", "spend", "debit"], 4))
 
 # Duplicate column check (crash rokne ke liye)
 if len({date_col, rev_col, exp_col}) < 3:
@@ -89,7 +99,7 @@ df[exp_col] = pd.to_numeric(df[exp_col], errors="coerce").fillna(0)
 df = df.dropna(subset=[date_col])
 
 if df.empty or not pd.api.types.is_datetime64_any_dtype(df[date_col]):
-    st.error(f"❌ Selected column **'{date_col}'** mein valid dates nahi mili. Sidebar se sahi Date column select karein.")
+    st.error(f"❌ Selected column **'{date_col}'** mein valid dates nahi mili. Sidebar mein **Header Row Number** ya **Date Column** check karein.")
     st.stop()
 
 df["Profit"] = df[rev_col] - df[exp_col]
